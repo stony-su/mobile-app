@@ -1,0 +1,24 @@
+{
+  "name": "lull",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lull — a cozy bedtime companion (PWA + Capacitor Android build).",
+  "scripts": {
+    "serve": "node tools/serve.mjs",
+    "icons": "node tools/make-icons.mjs",
+    "alarm-sound": "node tools/make-alarm-sound.mjs",
+    "build": "node tools/build-www.mjs",
+    "android:add": "node tools/build-www.mjs && cap add android",
+    "android:sync": "node tools/build-www.mjs && cap sync android",
+    "android:open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.0",
+    "@capacitor/core": "^6.1.0",
+    "@capacitor/local-notifications": "^6.1.0",
+    "@capacitor/preferences": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.0"
+  }
+}

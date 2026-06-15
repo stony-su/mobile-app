@@ -4,6 +4,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 import { engine, synthRingtones } from './audio.js';
+import { native, store } from './native.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -16,7 +17,11 @@ const load = (key, fallback) => {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
   catch (_) { return fallback; }
 };
-const save = (key, value) => localStorage.setItem(key, JSON.stringify(value));
+const save = (key, value) => {
+  const raw = JSON.stringify(value);
+  localStorage.setItem(key, raw);
+  store.mirror(key, raw);          // write-through to durable native storage
+};
 
 const journal = load('lull.journal', {});
 const settings = load('lull.settings', { volume: 80, cues: false, pattern: '478' });
@@ -32,13 +37,13 @@ const fmtTime = (d) =>
 function buildSky() {
   const field = $('#stars');
   const frag = document.createDocumentFragment();
-  for (let i = 0; i < 110; i++) {
+  for (let i = 0; i < 72; i++) {
     const s = document.createElement('i');
     s.className = 'star';
     const size = 1 + Math.random() * 1.8;
     s.style.width = s.style.height = size.toFixed(1) + 'px';
     s.style.left = (Math.random() * 100).toFixed(2) + '%';
-    s.style.top = (Math.random() * 100).toFixed(2) + '%';
+    s.style.top = (Math.random() * 60).toFixed(2) + '%';   // keep stars in the sky, above the dunes
     s.style.setProperty('--o', (0.25 + Math.random() * 0.65).toFixed(2));
     s.style.setProperty('--tw', (2.6 + Math.random() * 4).toFixed(1) + 's');
     s.style.setProperty('--twd', (Math.random() * 5).toFixed(1) + 's');
@@ -63,7 +68,7 @@ function scheduleShootingStar() {
 
 /* ─────────────────────────── tabs ─────────────────────────── */
 
-const PANELS = ['tonight', 'sounds', 'breathe', 'alarm'];
+const PANELS = ['tonight', 'sounds', 'breathe', 'alarm', 'history', 'health'];
 
 function showPanel(name) {
   $$('.panel').forEach((p) => p.classList.toggle('is-active', p.id === `panel-${name}`));
@@ -75,6 +80,8 @@ function showPanel(name) {
   window.scrollTo({ top: 0 });
   history.replaceState(null, '', name === 'tonight' ? location.pathname : `#${name}`);
   if (name === 'alarm') onAlarmShown();
+  if (name === 'history') renderHistory();
+  if (name === 'health') renderHealth();
 }
 
 function initTabs() {
@@ -196,6 +203,395 @@ function renderWeek() {
     );
   }
   row.innerHTML = cells.join('');
+}
+
+/* ─────────────────────────── history — a year of moons ─────────────────────────── */
+
+let historyYear = null;
+
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// every day someone logged a mood, as YYYY-MM-DD
+const trackedKeys = () =>
+  Object.keys(journal).filter((k) => journal[k] && journal[k].mood != null);
+
+function longestStreak(keys) {
+  if (!keys.length) return 0;
+  const days = [...new Set(keys.map((k) => Date.parse(k)))].sort((a, b) => a - b);
+  let best = 1, cur = 1;
+  for (let i = 1; i < days.length; i++) {
+    const gap = Math.round((days[i] - days[i - 1]) / 86400000);
+    if (gap === 1) cur += 1; else cur = 1;
+    if (cur > best) best = cur;
+  }
+  return best;
+}
+
+function yearBounds() {
+  const cur = new Date().getFullYear();
+  const years = trackedKeys().map((k) => Number(k.slice(0, 4)));
+  return { min: years.length ? Math.min(...years, cur) : cur, max: cur };
+}
+
+function renderStats(year) {
+  const all = trackedKeys();
+  const inYear = all.filter((k) => k.startsWith(`${year}-`));
+  const longest = longestStreak(inYear);
+  $('#statRow').innerHTML = `
+    <div class="stat"><span class="stat-num">${inYear.length}</span><span class="stat-lbl">nights in ${year}</span></div>
+    <div class="stat"><span class="stat-num">${longest}</span><span class="stat-lbl">longest streak</span></div>
+    <div class="stat"><span class="stat-num">${all.length}</span><span class="stat-lbl">nights all-time</span></div>`;
+}
+
+function updateYearArrows() {
+  const { min, max } = yearBounds();
+  $('#yearPrev').disabled = historyYear <= min;
+  $('#yearNext').disabled = historyYear >= max;
+}
+
+function renderHistory() {
+  if (historyYear == null) return;
+  const year = historyYear;
+  const today = dateKey();
+  const months = [];
+
+  for (let mo = 0; mo < 12; mo++) {
+    const daysInMonth = new Date(year, mo + 1, 0).getDate();
+    const cells = [];
+    for (let d = 1; d <= 31; d++) {
+      if (d > daysInMonth) { cells.push('<span class="moon-cell is-void"></span>'); continue; }
+      const key = `${year}-${pad(mo + 1)}-${pad(d)}`;
+      const entry = journal[key];
+      const lit = entry && entry.mood != null ? `t m${entry.mood}` : '';
+      const today_ = key === today ? 'is-today' : '';
+      const future = key > today ? 'is-future' : '';
+      cells.push(
+        `<button class="moon-cell ${lit} ${today_} ${future}" data-day="${key}" aria-label="${key}"></button>`
+      );
+    }
+    const name = new Date(year, mo, 1).toLocaleDateString([], { month: 'short' });
+    months.push(
+      `<div class="moon-month"><span class="moon-month-name">${name}</span>` +
+      `<div class="moon-days">${cells.join('')}</div></div>`
+    );
+  }
+
+  $('#moonYear').innerHTML = months.join('');
+  $('#yearLabel').textContent = year;
+  renderStats(year);
+  updateYearArrows();
+}
+
+function clearDetail() {
+  $('#dayDetail').innerHTML = '<p class="detail-empty">Tap a moon to revisit that night.</p>';
+}
+
+function showDay(key) {
+  const entry = journal[key];
+  const d = new Date(`${key}T00:00:00`);
+  const nice = d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const detail = $('#dayDetail');
+  if (!entry || entry.mood == null) {
+    detail.innerHTML = `<p class="detail-date">${nice}</p><p class="detail-empty">No moon logged that night.</p>`;
+    return;
+  }
+  detail.innerHTML = `
+    <div class="detail-head">
+      <span class="detail-moon">${moonSVG(entry.mood, `detail-${key}`)}</span>
+      <div>
+        <p class="detail-date">${nice}</p>
+        <p class="detail-mood">felt ${MOODS[entry.mood]}</p>
+      </div>
+    </div>
+    ${entry.note ? `<p class="detail-note">${escapeHtml(entry.note)}</p>` : '<p class="detail-empty">no words that night</p>'}`;
+}
+
+function initHistory() {
+  historyYear = new Date().getFullYear();
+
+  $('#yearPrev').addEventListener('click', () => { historyYear -= 1; renderHistory(); clearDetail(); });
+  $('#yearNext').addEventListener('click', () => { historyYear += 1; renderHistory(); clearDetail(); });
+
+  $('#moonYear').addEventListener('click', (e) => {
+    const cell = e.target.closest('.moon-cell');
+    if (!cell || cell.classList.contains('is-void') || cell.classList.contains('is-future')) return;
+    $$('#moonYear .moon-cell.is-sel').forEach((c) => c.classList.remove('is-sel'));
+    cell.classList.add('is-sel');
+    showDay(cell.dataset.day);
+  });
+
+  clearDetail();
+  renderHistory();
+}
+
+/* ─────────────────────────── sleep & health ───────────────────────────
+   All grounded in published sleep science:
+   · adults need 7–9 h (National Sleep Foundation consensus, 2015)
+   · healthy architecture ≈ light 50–60% · deep (N3) 15–25% · REM 20–25%
+   · sleep efficiency ≥ 85% is good; onset latency 10–20 min is normal
+   · day-to-day regularity independently predicts cardiometabolic & mortality risk
+   Stage split is *estimated* from duration with typical architecture — not measured. */
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const REC_MIN = 7, REC_MAX = 9;                    // recommended adult range (hours)
+const EFF_GOOD = 85, LAT_LO = 10, LAT_HI = 20;     // %, minutes
+const LAT_OPTS = [{ v: 3, l: '<5' }, { v: 15, l: '~15' }, { v: 30, l: '~30' }, { v: 45, l: '~45' }, { v: 60, l: '60+' }];
+const WAKE_OPTS = [{ v: 0, l: '0' }, { v: 1, l: '1' }, { v: 2, l: '2' }, { v: 3, l: '3+' }];
+
+let logLat = 15, logWakeups = 0;
+
+const parseHM = (s) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+const fmtDur = (min) => { const h = Math.floor(min / 60), m = Math.round(min % 60); return h > 0 ? `${h}h ${pad(m)}m` : `${m}m`; };
+
+function nightMetrics(entry) {
+  const s = entry && entry.sleep;
+  if (!s || !s.bed || !s.wake) return null;
+  const bed = parseHM(s.bed), wake = parseHM(s.wake);
+  let tib = wake - bed; if (tib <= 0) tib += 1440;          // crossed midnight
+  const lat = s.lat ?? 15;
+  const waso = (s.wakeups ?? 0) * 9;                         // ~9 min per awakening (estimate)
+  const asleep = Math.max(30, tib - lat - waso);
+  const eff = clamp((asleep / tib) * 100, 0, 100);
+  return { tib, lat, waso, asleep, eff, bed, wake };
+}
+
+// estimate stage split from duration — deep saturates, REM grows in later cycles
+function estimateStages(asleep) {
+  const hrs = asleep / 60;
+  const deep = Math.min(asleep * 0.22, 110);
+  const rem = asleep * Math.min(0.27, 0.18 + Math.max(0, hrs - 5) * 0.02);
+  const light = Math.max(0, asleep - deep - rem);
+  return { light, deep, rem };
+}
+
+const stdev = (a) => { if (a.length < 2) return 0; const m = a.reduce((x, y) => x + y, 0) / a.length; return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length); };
+const bedAxis = (bedMin) => { let v = bedMin - 1080; if (v < -180) v += 1440; return v; };  // minutes from 18:00
+
+function loggedNights() {
+  return Object.keys(journal)
+    .filter((k) => nightMetrics(journal[k]))
+    .sort()
+    .map((k) => ({ key: k, ...nightMetrics(journal[k]) }));
+}
+
+function durationScore(asleepMin) {
+  const h = asleepMin / 60;
+  if (h >= REC_MIN && h <= REC_MAX) return 100;
+  if (h < REC_MIN) return clamp(100 - (REC_MIN - h) * 22, 0, 100);
+  return clamp(100 - (h - REC_MAX) * 18, 0, 100);
+}
+const efficiencyScore = (eff) => clamp(Math.round((eff - 60) / (92 - 60) * 100), 0, 100);
+function latencyScore(lat) {
+  if (lat >= LAT_LO && lat <= LAT_HI) return 100;
+  if (lat < LAT_LO) return clamp(100 - (LAT_LO - lat) * 4, 40, 100);
+  return clamp(100 - (lat - LAT_HI) * 2.2, 0, 100);
+}
+
+function healthSummary() {
+  const nights = loggedNights();
+  if (!nights.length) return { nights };
+  const recent = nights.slice(-7);
+  const mean = (f) => recent.reduce((a, n) => a + f(n), 0) / recent.length;
+  const avgAsleep = mean((n) => n.asleep);
+  const avgEff = mean((n) => n.eff);
+  const avgLat = mean((n) => n.lat);
+  const sdAvg = (stdev(recent.map((n) => bedAxis(n.bed))) + stdev(recent.map((n) => n.wake))) / 2;
+  const consistency = recent.length >= 3 ? clamp(Math.round(100 - (sdAvg - 15) * 0.95), 0, 100) : null;
+  // debt = shortfall below the 7 h recommended floor (keeps it consistent with the score)
+  const debt = recent.reduce((a, n) => a + Math.max(0, REC_MIN * 60 - n.asleep), 0);
+  const cScore = consistency == null ? 70 : consistency;
+  const score = Math.round(0.35 * durationScore(avgAsleep) + 0.25 * efficiencyScore(avgEff) + 0.25 * cScore + 0.15 * latencyScore(avgLat));
+  return { nights, recent, avgAsleep, avgEff, avgLat, sdAvg, consistency, debt, score };
+}
+
+/* ---------- charts (hand-built SVG, no libraries) ---------- */
+
+function heroRingSVG(score) {
+  const frac = clamp(score, 0, 100) / 100;
+  return `<svg viewBox="0 0 128 128" class="hero-ring">
+    <circle cx="64" cy="64" r="46" class="ring-bg"/>
+    <circle cx="64" cy="64" r="46" class="ring-fg" pathLength="100" stroke-dasharray="100" style="--target:${(100 - frac * 100).toFixed(1)}" transform="rotate(-90 64 64)"/>
+    <text x="64" y="62" class="ring-score">${score}</text>
+    <text x="64" y="82" class="ring-of">/ 100</text>
+  </svg>`;
+}
+
+function durationChartSVG() {
+  const W = 324, H = 170, L = 28, R = 12, T = 16, B = 26, yLo = 3, yHi = 11;
+  const x = (i) => L + (W - L - R) * (i / 13);
+  const y = (h) => T + (H - T - B) * (1 - (clamp(h, yLo, yHi) - yLo) / (yHi - yLo));
+  const days = [];
+  for (let i = 13; i >= 0; i--) { const d = new Date(); d.setDate(d.getDate() - i); days.push(dateKey(d)); }
+  const pts = days.map((k, i) => { const m = nightMetrics(journal[k]); return { i, h: m ? m.asleep / 60 : null, k }; });
+
+  let grid = '';
+  for (const hh of [4, 6, 8, 10]) { const yy = y(hh); grid += `<line x1="${L}" y1="${yy.toFixed(1)}" x2="${W - R}" y2="${yy.toFixed(1)}" class="grid"/><text x="${L - 6}" y="${(yy + 3).toFixed(1)}" class="ax-y">${hh}h</text>`; }
+
+  const segs = []; let cur = [];
+  pts.forEach((p) => { if (p.h == null) { if (cur.length) { segs.push(cur); cur = []; } } else cur.push(p); });
+  if (cur.length) segs.push(cur);
+  const lastI = Math.max(-1, ...pts.filter((p) => p.h != null).map((p) => p.i));
+  const areas = segs.filter((s) => s.length > 1).map((seg) => {
+    const inner = seg.map((p) => `${x(p.i).toFixed(1)},${y(p.h).toFixed(1)}`).join(' ');
+    return `<polygon class="darea" points="${x(seg[0].i).toFixed(1)},${(H - B).toFixed(1)} ${inner} ${x(seg[seg.length - 1].i).toFixed(1)},${(H - B).toFixed(1)}"/>`;
+  }).join('');
+  const lines = segs.map((seg) => `<polyline class="dline" pathLength="100" points="${seg.map((p) => `${x(p.i).toFixed(1)},${y(p.h).toFixed(1)}`).join(' ')}"/>`).join('');
+  const dots = pts.filter((p) => p.h != null).map((p) => `<circle cx="${x(p.i).toFixed(1)}" cy="${y(p.h).toFixed(1)}" r="${p.i === lastI ? 3.6 : 2.4}" class="ddot${p.i === lastI ? ' last' : ''}"/>`).join('');
+  let xl = '';
+  days.forEach((k, i) => { if (i % 2 === 1) { const d = new Date(`${k}T00:00:00`); xl += `<text x="${x(i).toFixed(1)}" y="${H - 8}" class="ax-x">${d.toLocaleDateString([], { weekday: 'narrow' })}</text>`; } });
+
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg">
+    <rect x="${L}" y="${y(REC_MAX).toFixed(1)}" width="${W - L - R}" height="${(y(REC_MIN) - y(REC_MAX)).toFixed(1)}" class="band"/>
+    <text x="${W - R}" y="${(y(REC_MAX) - 4).toFixed(1)}" class="band-lbl">7–9h zone</text>
+    ${grid}${areas}${lines}${dots}${xl}
+  </svg>`;
+}
+
+function timingChartSVG() {
+  const nights = loggedNights().slice(-10);
+  if (!nights.length) return '<p class="chart-empty">Log a couple of nights to see how steady your timing is.</p>';
+  const L = 30, R = 10, T = 6, rowH = 22, W = 324, H = T + nights.length * rowH + 22, axisHi = 1080;
+  const xx = (min) => L + (W - L - R) * clamp(min, 0, axisHi) / axisHi;
+  const ticks = [{ m: 180, l: '9p' }, { m: 360, l: '12' }, { m: 540, l: '3a' }, { m: 720, l: '6a' }, { m: 900, l: '9a' }];
+  const grid = ticks.map((t) => `<line x1="${xx(t.m).toFixed(1)}" y1="${T}" x2="${xx(t.m).toFixed(1)}" y2="${H - 18}" class="grid"/><text x="${xx(t.m).toFixed(1)}" y="${H - 6}" class="ax-x">${t.l}</text>`).join('');
+  const medBed = nights.map((n) => Math.max(0, bedAxis(n.bed))).sort((a, b) => a - b)[Math.floor(nights.length / 2)];
+  const medWake = nights.map((n) => (n.wake + 360) % 1440).sort((a, b) => a - b)[Math.floor(nights.length / 2)];
+  const guides = `<line x1="${xx(medBed).toFixed(1)}" y1="${T}" x2="${xx(medBed).toFixed(1)}" y2="${H - 18}" class="guide"/><line x1="${xx(medWake).toFixed(1)}" y1="${T}" x2="${xx(medWake).toFixed(1)}" y2="${H - 18}" class="guide"/>`;
+  const rows = nights.map((n, i) => {
+    const yTop = T + i * rowH + 4;
+    const x1 = xx(Math.max(0, bedAxis(n.bed))), x2 = xx((n.wake + 360) % 1440);
+    const lbl = new Date(`${n.key}T00:00:00`).toLocaleDateString([], { weekday: 'short' });
+    const op = (0.5 + n.eff / 220).toFixed(2);
+    return `<text x="0" y="${(yTop + 11).toFixed(1)}" class="ax-row">${lbl}</text>` +
+      `<rect x="${x1.toFixed(1)}" y="${yTop.toFixed(1)}" width="${Math.max(3, x2 - x1).toFixed(1)}" height="13" rx="6" class="bar" style="--op:${op}"/>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg">${grid}${guides}${rows}</svg>`;
+}
+
+function stageChartSVG(summary) {
+  const recent = summary.recent;
+  let light = 0, deep = 0, rem = 0, awake = 0;
+  recent.forEach((n) => { const s = estimateStages(n.asleep); light += s.light; deep += s.deep; rem += s.rem; awake += n.lat + n.waso; });
+  const tot = (light + deep + rem + awake) || 1;
+  const segs = [
+    { label: 'Deep', val: deep, cls: 's-deep' },
+    { label: 'REM', val: rem, cls: 's-rem' },
+    { label: 'Light', val: light, cls: 's-light' },
+    { label: 'Awake', val: awake, cls: 's-awake' },
+  ];
+  const r = 52, C = 2 * Math.PI * r;
+  let off = 0;
+  const arcs = segs.map((s) => {
+    const frac = s.val / tot;
+    const el = `<circle cx="64" cy="64" r="${r}" class="donut-seg ${s.cls}" stroke-dasharray="${(frac * C).toFixed(2)} ${(C - frac * C).toFixed(2)}" stroke-dashoffset="${(-off * C).toFixed(2)}"/>`;
+    off += frac; return el;
+  }).join('');
+  const avgAsleep = recent.reduce((a, n) => a + n.asleep, 0) / recent.length;
+  const legend = segs.map((s) => `<li class="lg ${s.cls}"><span class="lg-dot"></span><span class="lg-name">${s.label}</span><span class="lg-val">${Math.round(s.val / tot * 100)}%</span></li>`).join('');
+  return `<div class="donut-wrap">
+    <svg viewBox="0 0 128 128" class="donut"><g transform="rotate(-90 64 64)">${arcs}</g>
+      <text x="64" y="60" class="donut-num">${fmtDur(avgAsleep)}</text>
+      <text x="64" y="79" class="donut-lbl">asleep</text>
+    </svg>
+    <ul class="donut-legend">${legend}</ul>
+  </div>`;
+}
+
+function sleepInsight(s) {
+  const tips = [];
+  const h = s.avgAsleep / 60;
+  if (h < REC_MIN) tips.push({ sev: REC_MIN - h, text: `You're averaging <b>${fmtDur(s.avgAsleep)}</b> asleep — under the 7–9&nbsp;h adults need. A chronic shortfall dulls focus and mood and strains cardiometabolic health.` });
+  if (s.consistency != null && s.consistency < 70) tips.push({ sev: (70 - s.consistency) / 18, text: `Your bed &amp; wake times swing by about <b>±${Math.round(s.sdAvg)}&nbsp;min</b>. Irregular timing — independent of how long you sleep — is linked to higher cardiometabolic and mortality risk. A steadier rhythm helps most.` });
+  if (s.avgEff < EFF_GOOD) tips.push({ sev: (EFF_GOOD - s.avgEff) / 14, text: `Your sleep efficiency is about <b>${Math.round(s.avgEff)}%</b>, below the 85% mark. Time spent restless in bed eats into restorative deep &amp; REM sleep.` });
+  if (s.avgLat > LAT_HI) tips.push({ sev: (s.avgLat - LAT_HI) / 18, text: `You take roughly <b>${Math.round(s.avgLat)}&nbsp;min</b> to drop off. Regularly over ~20&nbsp;min can mean a too-early bedtime or a busy mind — a few rounds in Breathe can help.` });
+  if (!tips.length) return `<p class="insight-good">✶ Your sleep is in great shape — duration, timing, and efficiency all sit in healthy ranges. Keep the rhythm.</p>`;
+  tips.sort((a, b) => b.sev - a.sev);
+  const lead = s.score >= 85 ? 'One small thing' : 'Worth focusing on';
+  return `<p class="insight-lead">${lead}</p><p class="insight-text">${tips[0].text}</p>`;
+}
+
+function renderHealth() {
+  const s = healthSummary();
+  const hero = $('#healthHero'), stats = $('#sleepStats'), insight = $('#sleepInsight');
+
+  if (!s.nights.length) {
+    hero.innerHTML = `${heroRingSVG(0)}<div class="hero-meta"><p class="hero-label">sleep score</p><p class="hero-verdict">No data yet</p><p class="hero-debt">Log a few nights and your score, trends, and stages appear here.</p></div>`;
+    stats.innerHTML = ['avg sleep', 'consistency', 'efficiency'].map((l) => `<div class="stat"><span class="stat-num">—</span><span class="stat-lbl">${l}</span></div>`).join('');
+    $('#durationChart').innerHTML = durationChartSVG();   // shows the 7–9h target zone even when empty
+    $('#timingChart').innerHTML = timingChartSVG();
+    $('#stageChart').innerHTML = '<p class="chart-empty">Your estimated Light / Deep / REM / Awake mix shows here once you log a night.</p>';
+    insight.innerHTML = '';
+    insight.style.display = 'none';
+    drawHealth();
+    return;
+  }
+
+  const verdict = s.score >= 85 ? 'Thriving' : s.score >= 70 ? 'Solid' : s.score >= 55 ? 'Getting there' : 'Needs care';
+  const debtText = s.debt > 30 ? `<b>${fmtDur(s.debt)}</b> sleep debt this week` : 'No sleep debt — nicely balanced';
+  hero.innerHTML = `${heroRingSVG(s.score)}<div class="hero-meta"><p class="hero-label">sleep score · last ${s.recent.length} nights</p><p class="hero-verdict">${verdict}</p><p class="hero-debt">${debtText}</p></div>`;
+
+  const dur = `${fmtDur(s.avgAsleep)}`;
+  stats.innerHTML = `
+    <div class="stat"><span class="stat-num">${dur}</span><span class="stat-lbl">avg asleep</span></div>
+    <div class="stat"><span class="stat-num">${s.consistency == null ? '—' : s.consistency}</span><span class="stat-lbl">consistency</span></div>
+    <div class="stat"><span class="stat-num">${Math.round(s.avgEff)}%</span><span class="stat-lbl">efficiency</span></div>`;
+
+  $('#durationChart').innerHTML = durationChartSVG();
+  $('#timingChart').innerHTML = timingChartSVG();
+  $('#stageChart').innerHTML = stageChartSVG(s);
+  insight.style.display = '';
+  insight.innerHTML = sleepInsight(s);
+  drawHealth();
+}
+
+// (re)trigger the draw-in animations
+function drawHealth() {
+  const panel = $('#panel-health');
+  panel.classList.remove('drawn');
+  requestAnimationFrame(() => requestAnimationFrame(() => panel.classList.add('drawn')));
+}
+
+function chipRow(el, opts, current, onPick) {
+  el.innerHTML = opts.map((o) => `<button class="chip ${o.v === current ? 'is-active' : ''}" data-v="${o.v}">${o.l}</button>`).join('');
+  el.addEventListener('click', (e) => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    [...el.children].forEach((c) => c.classList.toggle('is-active', c === b));
+    onPick(Number(b.dataset.v));
+  });
+}
+
+function initHealth() {
+  chipRow($('#logLat'), LAT_OPTS, logLat, (v) => { logLat = v; });
+  chipRow($('#logWakeups'), WAKE_OPTS, logWakeups, (v) => { logWakeups = v; });
+
+  // prefill from a night already logged today
+  const today = dateKey();
+  const cur = journal[today] && journal[today].sleep;
+  if (cur) {
+    if (cur.bed) $('#logBed').value = cur.bed;
+    if (cur.wake) $('#logWake').value = cur.wake;
+    logLat = cur.lat ?? logLat;
+    logWakeups = cur.wakeups ?? logWakeups;
+    [...$('#logLat').children].forEach((c) => c.classList.toggle('is-active', Number(c.dataset.v) === logLat));
+    [...$('#logWakeups').children].forEach((c) => c.classList.toggle('is-active', Number(c.dataset.v) === logWakeups));
+  }
+  // default the "woke" time to the daily alarm, unless tonight is already logged
+  if (!cur || !cur.wake) $('#logWake').value = `${pad(alarm.h)}:${pad(alarm.m)}`;
+
+  $('#logSave').addEventListener('click', () => {
+    const bed = $('#logBed').value, wake = $('#logWake').value;
+    if (!bed || !wake) return;
+    journal[today] = { ...journal[today], sleep: { bed, wake, lat: logLat, wakeups: logWakeups } };
+    save('lull.journal', journal);
+    const msg = $('#logSaved');
+    msg.textContent = 'logged ✶';
+    msg.classList.add('show');
+    setTimeout(() => msg.classList.remove('show'), 2200);
+    renderHealth();
+  });
+
+  renderHealth();
 }
 
 /* ─────────────────────────── sounds ─────────────────────────── */
@@ -608,8 +1004,15 @@ async function removeCustomRingtone(id) {
 /* ---- the ring itself ---- */
 let vibeAt = 0;
 
+// keep the native (Android) alarm in step with our state — a no-op on the web
+function syncNativeAlarm() {
+  if (alarm.enabled) native.scheduleAlarm(alarm.fireAt);
+  else native.cancelAlarm();
+}
+
 function fireAlarm() {
-  engine.stopAll(0.4);                       // hush the soundscapes
+  native.cancelAlarm();                       // app's awake — don't also ding the notification
+  engine.stopAll(0.4);                        // hush the soundscapes
   const r = ringById(alarm.ring) || ringtones[0];
   engine.startAlarm(r);
   const t = fmt12(alarm.h, alarm.m);
@@ -625,6 +1028,7 @@ function dismissAlarm() {
   alarm.enabled = false;
   alarm.fireAt = 0;
   save('lull.alarm', alarm);
+  syncNativeAlarm();
   refreshAlarmUI();
 }
 
@@ -634,6 +1038,7 @@ function snoozeAlarm() {
   $('#alarmOverlay').classList.remove('show');
   alarm.fireAt = Date.now() + 5 * 60000;
   save('lull.alarm', alarm);
+  syncNativeAlarm();
   refreshAlarmUI();
 }
 
@@ -696,16 +1101,33 @@ async function initAlarm() {
       alarm.h = h; alarm.m = m;
       alarm.enabled = true;
       alarm.fireAt = nextFire(h, m);
+      // keep the sleep-log's "woke" default in step with the alarm (unless already logged)
+      const lw = $('#logWake'), t = dateKey();
+      if (lw && !(journal[t] && journal[t].sleep && journal[t].sleep.wake)) lw.value = `${pad(h)}:${pad(m)}`;
     }
     save('lull.alarm', alarm);
+    syncNativeAlarm();
     refreshAlarmUI();
   });
 
   $('#alarmDismiss').addEventListener('click', dismissAlarm);
   $('#alarmSnooze').addEventListener('click', snoozeAlarm);
 
+  // tapping the Android alarm notification opens the app — ring here too
+  native.onAlarmTapped(() => fireAlarm());
+
+  // be honest about reach: native rings in the background, web only while open
+  $('.alarm-foot').textContent = native.isNative
+    ? 'Rings even when Lull is closed.'
+    : '';
+
   // a stale "enabled" alarm from a past session shouldn't ring instantly
-  if (alarm.enabled && Date.now() >= alarm.fireAt) alarm.fireAt = nextFire(alarm.h, alarm.m);
+  if (alarm.enabled && Date.now() >= alarm.fireAt) {
+    alarm.fireAt = nextFire(alarm.h, alarm.m);
+    save('lull.alarm', alarm);
+  }
+  // make sure the native schedule matches whatever we restored
+  syncNativeAlarm();
 
   refreshReadout();
   refreshAlarmUI();
@@ -754,14 +1176,26 @@ async function idbAll() {
 /* ─────────────────────────── boot ─────────────────────────── */
 
 buildSky();
-initTabs();
 setGreeting();
 tickClock();
 setInterval(tickClock, 1000);
-initJournal();
-initSounds();
-initBreathe();
-initAlarm();
+
+(async () => {
+  await native.init();
+  // pull durable copies (native) into our stores before anything reads them
+  await store.hydrate(['lull.journal', 'lull.settings', 'lull.alarm']);
+  Object.assign(journal, load('lull.journal', {}));
+  Object.assign(settings, load('lull.settings', {}));
+  Object.assign(alarm, load('lull.alarm', {}));
+
+  initJournal();
+  initHistory();
+  initHealth();
+  initSounds();
+  initBreathe();
+  initAlarm();
+  initTabs();          // last, so hash routing finds every panel ready
+})();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

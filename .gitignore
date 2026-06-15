@@ -1,0 +1,11 @@
+# dependencies
+node_modules/
+
+# Capacitor: generated copy of the web assets, and the native project
+www/
+android/
+ios/
+
+# misc
+.DS_Store
+*.log

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Lull — a soft place to land</title>
-  <meta name="description" content="A cozy companion for bedtime: soundscapes, slow breathing, sleep-cycle planning and a tiny night journal." />
+  <meta name="description" content="A cozy companion for bedtime: synthesized soundscapes, slow breathing, a gentle alarm, a tiny night journal and a year of moons to look back on." />
   <meta name="theme-color" content="#0d0a1c" />
 
   <link rel="manifest" href="manifest.webmanifest" />
@@ -23,30 +23,21 @@
 </head>
 <body>
 
-  <!-- ✶ the night sky lives behind everything -->
+  <!-- ✶ moonlit dunes live behind everything -->
   <div id="sky" aria-hidden="true">
-    <div class="moon-halo"></div>
-    <svg class="moon" viewBox="0 0 120 120">
-      <defs>
-        <radialGradient id="moonGrad" cx="35%" cy="30%" r="85%">
-          <stop offset="0%" stop-color="#fbf0d7" />
-          <stop offset="55%" stop-color="#f4d49a" />
-          <stop offset="100%" stop-color="#e9a85f" />
-        </radialGradient>
-        <mask id="moonMask">
-          <rect width="120" height="120" fill="black" />
-          <circle cx="60" cy="60" r="38" fill="white" />
-          <circle cx="77" cy="47" r="34" fill="black" />
-        </mask>
-      </defs>
-      <circle cx="60" cy="60" r="38" fill="url(#moonGrad)" mask="url(#moonMask)" />
-    </svg>
     <div id="stars"></div>
+    <div class="moon"><span class="moon-halo"></span><span class="moon-disc"></span></div>
     <svg class="sparkle sparkle-a" viewBox="0 0 24 24"><path d="M12 2l1.6 8.4L22 12l-8.4 1.6L12 22l-1.6-8.4L2 12l8.4-1.6Z"/></svg>
     <svg class="sparkle sparkle-b" viewBox="0 0 24 24"><path d="M12 2l1.6 8.4L22 12l-8.4 1.6L12 22l-1.6-8.4L2 12l8.4-1.6Z"/></svg>
-    <div class="mist mist-a"></div>
-    <div class="mist mist-b"></div>
     <div class="shooting" id="shooting"></div>
+    <div class="horizon-glow"></div>
+    <svg class="dune dune-4" viewBox="0 0 1440 220" preserveAspectRatio="none"><path d="M0 120 C240 60 480 132 720 92 S1200 58 1440 102 L1440 220 L0 220 Z" fill="#2c2358"/></svg>
+    <div class="fog fog-far"></div>
+    <svg class="dune dune-3" viewBox="0 0 1440 200" preserveAspectRatio="none"><path d="M0 112 C300 152 560 70 820 112 S1240 150 1440 88 L1440 200 L0 200 Z" fill="#20183f"/></svg>
+    <svg class="dune dune-2" viewBox="0 0 1440 180" preserveAspectRatio="none"><path d="M0 92 C280 132 520 58 760 102 S1180 58 1440 112 L1440 180 L0 180 Z" fill="#15102c"/></svg>
+    <div class="fog fog-mid"></div>
+    <svg class="dune dune-1" viewBox="0 0 1440 150" preserveAspectRatio="none"><path d="M0 72 C360 112 600 50 900 92 S1260 110 1440 70 L1440 150 L0 150 Z" fill="#090616"/></svg>
+    <div class="fog fog-near"></div>
   </div>
 
   <main id="app">
@@ -73,6 +64,25 @@
           <div class="week">
             <p class="prompt prompt-small">your week in moons</p>
             <div class="week-row" id="weekRow"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="block reveal">
+        <h2 class="section-title">last night's sleep</h2>
+        <div class="card log-card">
+          <p class="prompt">How did you sleep?</p>
+          <div class="log-times">
+            <label>to bed<input type="time" id="logBed" value="23:00" /></label>
+            <label>woke<input type="time" id="logWake" value="07:00" /></label>
+          </div>
+          <p class="log-q">fell asleep in (min)</p>
+          <div class="chips log-chips" id="logLat"></div>
+          <p class="log-q">woke during the night</p>
+          <div class="chips log-chips" id="logWakeups"></div>
+          <div class="log-foot">
+            <button class="btn-primary" id="logSave">save last night</button>
+            <span class="saved-msg" id="logSaved" role="status"></span>
           </div>
         </div>
       </section>
@@ -206,8 +216,57 @@
 
       <div class="alarm-actions block reveal">
         <button class="btn-primary" id="alarmToggle">set alarm</button>
-        <p class="footnote alarm-foot">Rings while Lull is open in this tab.</p>
+        <p class="footnote alarm-foot"></p>
       </div>
+    </section>
+
+    <!-- ════════ HISTORY ════════ -->
+    <section class="panel" id="panel-history" aria-labelledby="tab-history">
+      <header class="panel-head reveal">
+        <p class="eyebrow">your moons</p>
+        <h2 class="panel-title">A year of&nbsp;nights.</h2>
+      </header>
+
+      <div class="year-nav block reveal">
+        <button class="year-arrow" id="yearPrev" aria-label="Previous year">‹</button>
+        <span class="year-label" id="yearLabel">2026</span>
+        <button class="year-arrow" id="yearNext" aria-label="Next year">›</button>
+      </div>
+
+      <div class="stat-row block reveal" id="statRow"></div>
+
+      <div class="moon-year block reveal" id="moonYear"></div>
+
+      <div class="card day-detail block reveal" id="dayDetail"></div>
+    </section>
+
+    <!-- ════════ HEALTH ════════ -->
+    <section class="panel" id="panel-health" aria-labelledby="tab-health">
+      <header class="panel-head reveal">
+        <p class="eyebrow">sleep &amp; health</p>
+        <h2 class="panel-title">How you're really&nbsp;resting.</h2>
+      </header>
+
+      <div class="health-hero block reveal" id="healthHero"></div>
+
+      <div class="stat-row block reveal" id="sleepStats"></div>
+
+      <div class="card chart-card block reveal">
+        <div class="chart-head"><h3 class="chart-title">Sleep duration</h3><span class="chart-sub">last 14 nights</span></div>
+        <div class="chart-body" id="durationChart"></div>
+      </div>
+
+      <div class="card chart-card block reveal">
+        <div class="chart-head"><h3 class="chart-title">Sleep timing</h3><span class="chart-sub">regularity = health</span></div>
+        <div class="chart-body" id="timingChart"></div>
+      </div>
+
+      <div class="card chart-card block reveal">
+        <div class="chart-head"><h3 class="chart-title">Sleep stages</h3><span class="chart-sub">estimated · typical night</span></div>
+        <div class="chart-body" id="stageChart"></div>
+      </div>
+
+      <div class="card insight-card block reveal" id="sleepInsight"></div>
     </section>
 
   </main>
@@ -240,6 +299,14 @@
     <button id="tab-alarm" class="tab" data-tab="alarm" aria-selected="false">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 9.5V13l2.4 1.6"/><path d="M5 3 2.5 5.5"/><path d="M19 3l2.5 2.5"/></svg>
       <span>alarm</span>
+    </button>
+    <button id="tab-history" class="tab" data-tab="history" aria-selected="false">
+      <svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 9.5h17"/><path d="M8 3v3.5M16 3v3.5"/></svg>
+      <span>history</span>
+    </button>
+    <button id="tab-health" class="tab" data-tab="health" aria-selected="false">
+      <svg viewBox="0 0 24 24"><path d="M3 13h3l2-5 3 9 2.5-7 1.5 3H21"/></svg>
+      <span>health</span>
     </button>
   </nav>
 

@@ -1,5 +1,5 @@
 /* Lull service worker — app shell cache + runtime font cache */
-const VERSION = 'lull-v2';
+const VERSION = 'lull-v7';
 const FONT_CACHE = 'lull-fonts-v1';
 
 const SHELL = [
@@ -8,6 +8,7 @@ const SHELL = [
   './css/styles.css',
   './js/app.js',
   './js/audio.js',
+  './js/native.js',
   './manifest.webmanifest',
   './ringtones/ringtones.json',
   './icons/icon-192.png',

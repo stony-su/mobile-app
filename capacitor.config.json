@@ -1,0 +1,16 @@
+{
+  "appId": "app.lull.cozy",
+  "appName": "Lull",
+  "webDir": "www",
+  "backgroundColor": "#0d0a1cff",
+  "android": {
+    "backgroundColor": "#0d0a1cff"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_lull",
+      "iconColor": "#f2b25c",
+      "sound": "chimes"
+    }
+  }
+}

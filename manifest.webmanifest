@@ -2,7 +2,7 @@
   "id": "lull-sleep-app",
   "name": "Lull — a soft place to land",
   "short_name": "Lull",
-  "description": "A cozy companion for bedtime: synthesized soundscapes, slow breathing, sleep-cycle planning and a tiny night journal.",
+  "description": "A cozy companion for bedtime: synthesized soundscapes, slow breathing, a gentle alarm, a tiny night journal and a year of moons to look back on.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
